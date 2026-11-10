@@ -1,0 +1,44 @@
+name: Verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Source whitespace
+        run: git diff-tree --check --root -r HEAD
+      - name: Package tests
+        run: swift test
+      - name: Release build
+        run: swift build -c release
+      - name: Independent consumer and restart
+        run: |
+          store="$(mktemp -d)"
+          trap 'rm -rf "$store"' EXIT
+          swift run --package-path Examples/Notes Notes seed "$store"
+          swift run --package-path Examples/Notes Notes verify "$store"
+          swift run --package-path Examples/Notes Notes
+      - name: iOS Simulator libraries
+        run: |
+          for scheme in CloudKitData CloudKitDataStack; do
+            xcodebuild -scheme "$scheme" \
+              -destination 'generic/platform=iOS Simulator' \
+              -skipMacroValidation CODE_SIGNING_ALLOWED=NO build
+          done
